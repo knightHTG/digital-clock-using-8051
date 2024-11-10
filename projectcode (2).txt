@@ -1,0 +1,410 @@
+#include<reg51.h>
+sbit dig_ctrl_4=P1^0;  //Declare the control pins for the seven segments
+sbit dig_ctrl_3=P1^1;
+sbit dig_ctrl_2=P1^2;
+sbit dot=P3^7;
+sbit dig_ctrl_1=P1^3;
+sbit resetclock=P1^4;  //Reset clock pin to reset the clock.
+sbit start=P1^7;  // Start pin for starting the clock after time setting
+sbit incr=P1^6;  // Increment pin to increase the digits during time setting.
+sbit set=P1^5;  // Set pin to set the time.
+sbit rd=P3^4;
+sbit wr=P3^5;
+sbit intr=P3^6;
+sfr input=0x80;
+unsigned char inp=0;
+void display_temp();
+unsigned char inp_val;
+unsigned int converted_val;
+unsigned int converted_val1;
+unsigned int v1,v2,v3;
+unsigned char s;
+unsigned int temperature(unsigned int temp);
+int sel_seg_to_incr=0;
+int ret_seg_to_incre=0;
+int recnt_incr_seg;
+int begin;
+unsigned char dig_disp=0;
+int hr2=0;
+int hr1=0;
+int min2=0;
+int min1=0;
+int sec2=0;
+int sec1=0;
+int hralarm2=0;
+int hralarm1=0;
+int minalarm2=0;
+int minalarm1=0;
+int secalarm2=0;
+int secalarm1=0;
+int loop=0;
+int mode;
+char dig_val[10]={0x40,0xF9,0x24,0x30,0x19,0x12,0x02,0xF8,0x00,0x10};  // Hex values corresponding to digits 0 to 9
+
+void delay(int time)  //Function to provide time delay.
+{
+int i,j;
+for(i=0;i<time;i++)
+for(j=0;j<1275;j++);
+}
+
+int setfn()  // Function to select miniute and seconds digit set time.
+{      
+while(set==0)
+{
+  switch(recnt_incr_seg)
+  {
+ 
+   case 1:
+   if(set==0)  //Select the min2 digit
+   {
+    dig_ctrl_4=1;
+    dig_ctrl_3=0;
+    dig_ctrl_2=0;
+    dig_ctrl_1=0;
+    recnt_incr_seg=2;
+    ret_seg_to_incre=1;
+    P2=dig_val[hralarm2];  
+    delay(100);
+   }
+ 
+   case 2:
+   if(set==0)  //Select the min1 digit
+   {
+    dig_ctrl_4=0;
+    dig_ctrl_3=1;
+    dig_ctrl_2=0;
+    dig_ctrl_1=0;
+    recnt_incr_seg=3;
+    ret_seg_to_incre=2;
+    P2=dig_val[hralarm1];  
+    delay(100);
+   }
+ 
+   case 3:
+   if(set==0)  //Select the sec 2 digit
+   {
+    dig_ctrl_4=0;
+    dig_ctrl_3=0;
+    dig_ctrl_2=1;
+    dig_ctrl_1=0;
+    recnt_incr_seg=4;
+    ret_seg_to_incre=3;
+    P2=dig_val[minalarm2];  
+    delay(100);
+   }
+ 
+   case 4:
+   if(set==0)  //Select the sec1 digit
+   {
+    recnt_incr_seg=1;
+    dig_ctrl_4=0;
+    dig_ctrl_3=0;
+    dig_ctrl_2=0;
+    dig_ctrl_1=1;
+    ret_seg_to_incre=4;
+    P2=dig_val[minalarm1];
+    delay(100);
+    recnt_incr_seg=1;
+   }
+  }
+}
+return(ret_seg_to_incre);
+}
+
+void increase(int a)  //Function to set the minutes or seconds digit
+{
+while(incr==0)
+{
+  switch(a)
+  {
+  
+   case 1:  // Set the min2 digit.
+   P2=dig_val[hralarm2];
+   delay(100);
+   hralarm2++;
+   if(hralarm2==3)
+   hralarm2=0;
+   P2=dig_val[hralarm2];
+   delay(20);
+   break;
+ 
+   case 2:  //Set the min1 digit.
+   P2=dig_val[hralarm1];
+   delay(100);
+   hralarm1++;
+   if((hralarm1==10)|((hralarm1==5)&&(hralarm2==2)))
+   hralarm1=0;
+   P2=dig_val[hralarm1];
+   delay(20);
+   break;
+ 
+   case 3:  // Set the sec2 digit.
+   P2=dig_val[minalarm2];
+   delay(100);
+   minalarm2++;
+   if(minalarm2==6)
+   minalarm2=0;
+   P2=dig_val[minalarm2];
+   delay(20);
+   break;
+ 
+   case 4:  //Set the sec1 digit.
+      //recnt_incr_seg=4;
+   P2=dig_val[minalarm1];
+   delay(100);
+   minalarm1++;
+   if(minalarm1==10)
+   minalarm1=0;
+   P2=dig_val[minalarm1];
+   delay(20);
+   break;
+  }
+}
+}
+
+void resetfn(mode)  // Function to bring the clock to reset or set mode.
+{
+  begin=1;
+dig_ctrl_4=1;  //Enable the min2 digit and disable others
+dig_ctrl_3=0;
+dig_ctrl_2=0;
+dig_ctrl_1=0;
+if(mode==1)  //Check if clock is in set clock mode
+{
+  IE=0x80;  //Disable Timer0 interrupt to stop the clock.
+	hralarm2=hr2;
+	hralarm1=hr1;
+  minalarm2=min2;
+  minalarm1=min1;
+  secalarm2=sec2;
+  secalarm1=sec1;
+  sel_seg_to_incr=1;
+  recnt_incr_seg=1;
+  P2=dig_val[min2];
+  delay(100);
+}
+while(1)
+{   
+  if(start==0)  //Check if start pin is pressed
+  {
+   if(mode==1)
+   {
+		 hr2=hralarm2;
+		 hr1=hralarm1;
+    min2=minalarm2;
+    min1=minalarm1;
+    sec2=secalarm2;
+    sec1=secalarm1;
+    }
+  TMOD=0x11;  //Reset the timer0
+  TL0=0xf6;
+  TH0=0xFf;
+  IE=0x8A;  //Enabling Timer0 interrupt to start the display of clock
+  TR0=1;
+  break;
+  }
+  if(set==0)  //Check if set pin is pressed
+  sel_seg_to_incr=setfn();
+  if(incr==0)  //Check if incr pin is pressed
+  increase(sel_seg_to_incr);
+}
+}
+
+void display() interrupt 1  // Function to display the digits on seven segment using the concept of seven segment multiplexing.
+{
+TL0=0x36;  //Reload Timer0
+    TH0=0xf6;
+    P2=0xFF;
+dig_ctrl_1 = dig_ctrl_3 = dig_ctrl_2 = dig_ctrl_4 = 0;
+dig_disp++;
+dig_disp=dig_disp%4;
+switch(dig_disp)
+{
+  case 0:
+  P2=dig_val[min1];
+  dig_ctrl_1 = 1;
+  break;
+
+  case 1:
+  P2= dig_val[min2];
+  dig_ctrl_2 = 1;
+  break;
+
+  case 2:
+  P2= dig_val[hr1];
+  dig_ctrl_3 = 1;
+  break;
+
+  case 3:
+  P2= dig_val[hr2];
+  dig_ctrl_4 = 1;
+  break;
+}
+}
+
+
+void moveclock() interrupt 3  // Function to increment clock digits
+{
+	TL1=0xFD;
+TH1=0x4B;
+loop++;
+if(loop==20)
+{
+  sec1++;
+  if(sec1==10)
+  {
+   sec1=0;
+   sec2++;
+   if(sec2==6)
+   {
+    sec1=0;
+    sec2=0;
+    min1++;
+    if(min1==10)
+    {
+     sec1=0;
+     sec2=0;
+     min1=0;
+     min2++;
+     if(min2==6)
+     {
+      sec1=0;
+      sec2=0;
+      min1=0;
+      min2=0; 
+			 hr1++;
+			 if(hr1==10)
+			 {
+				 sec1=0;
+      sec2=0;
+      min1=0;
+      min2=0; 
+			 hr1=0;
+				 hr2++;
+			 if(hr1==4&hr2==2)
+			 {
+				 	 sec1=0;
+      sec2=0;
+      min1=0;
+      min2=0; 
+			 hr1=0;
+				 hr2=0;
+			 }
+		 }
+     }
+    }
+   }
+  }
+  loop=0;
+}
+}
+
+
+void main()
+{
+mode=0;
+set=1;  //Initialize set, reset, start and incr pins as input
+resetclock=1;
+start=1;
+incr=1;
+begin=0;
+TMOD=0x11;  //Intialize Timer 0
+TL0=0xf6;  //Load timer0
+TH0=0xFf;
+IE=0x8A;  //Enable Timer0 interrupt
+TR0=1;  //Start Timer0
+TL1=0xFD;
+TH1=0x4B;
+TR1=1;  // Start Timer1
+	dot=1;
+while(1)
+{
+  if(resetclock==0)//Check if reset clock pin is pressed
+  {
+   resetfn(1);
+  }
+	else{
+	delay(300);
+	dig_ctrl_1 = dig_ctrl_3 = dig_ctrl_2 = dig_ctrl_4 = 0;
+	IE=0x88;
+	display_temp();
+	delay(300);
+	TMOD=0x11;  //Reset the timer0
+  TL0=0xF6;
+  TH0=0xFF;
+  IE=0x8A;  //Enabling Timer0 interrupt to start the display of clock
+  TR0=1;
+	}
+}
+}
+
+
+void display_temp()
+{
+	unsigned char l;
+	unsigned int m=10;
+	rd=1;
+	wr=0;
+	delay(25);
+	wr=1;
+	while(intr==1);
+	rd=0;
+	inp=input;
+	inp_val=input;
+  inp_val=temperature(inp_val);
+	v3=inp_val%m;
+	inp_val=inp_val/m;
+	v2=inp_val%m;
+	v1=inp_val/m;
+	s=0xFF;
+ // converted_val=temperature(inp_val);
+//	if(converted_val<0)
+//	{converted_val=(-1)*converted_val;
+//		converted_val1=(unsigned int)converted_val;
+//		v3=converted_val1%10;
+//		converted_val1=converted_val1/10;
+//		v2=converted_val1%10;
+//		v1=converted_val1/10;
+//		s=0x7E;
+//	}
+//	else
+//	{
+//		converted_val1=(unsigned int)converted_val;
+//		v3=converted_val%10;
+//		converted_val=converted_val/10;
+//		v2=converted_val%10;
+//		v1=converted_val/10;
+//		s=0xFF;
+//	}
+	P2=0x00;
+	dig_ctrl_4=dig_ctrl_3=dig_ctrl_2=dig_ctrl_1=0;
+	for(l=0;l<30;l++)
+	{
+	dig_ctrl_4=1;
+	P2=s;
+	delay(1);
+	dig_ctrl_4=0;
+	dig_ctrl_3=1;
+	P2=dig_val[v1];
+	delay(1);
+	dig_ctrl_3=0;
+	dig_ctrl_2=1;
+	P2=dig_val[v2];
+	delay(1);
+	dig_ctrl_2=0;
+	dig_ctrl_1=1;
+	P2=dig_val[v3];
+	delay(1);
+	dig_ctrl_1=0;
+	}
+}
+unsigned int temperature(unsigned int temp)
+{
+	float y,x;
+	unsigned int res;
+	x=(float)temp;
+  y=2*x;
+	res=(unsigned int)y;
+	return res;
+}
